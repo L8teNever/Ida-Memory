@@ -50,6 +50,23 @@ Damit bekommt eine KI immer *genug* Kontext, um eine Frage zu verstehen,
 aber nicht *mehr* als nötig -- auch wenn aus zehn heutigen Fakten in ein paar
 Jahren zehntausend geworden sind.
 
+**Das gilt genauso beim Schreiben, nicht nur beim Lesen.** Der Server kann
+selbst nicht beurteilen, was "wichtig" ist -- das entscheidet die
+schreibende KI bei jedem Aufruf von `create_entities`/`create_relations`/
+`add_observations`. Die Tool-Beschreibungen und die Server-`instructions`
+weisen die verbundenen KIs deshalb ausdrücklich an:
+
+- Nur dauerhaft nützliche, wirklich relevante Fakten speichern -- nicht
+  jede beiläufige oder einmalige Kleinigkeit.
+- Eine `observation` nur an die Entity hängen, zu der sie tatsächlich
+  gehört -- nicht vorsorglich an mehrere.
+
+Der Grund: ein mit Trivialkram vollgeschriebener Graph macht später auch
+die bewusst begrenzten Suchergebnisse (`search_nodes`-Limit) weniger
+brauchbar -- jeder unwichtige Eintrag konkurriert um einen der begrenzten
+Plätze in der Trefferliste. Weniger, aber relevante Einträge sind besser
+als möglichst viele.
+
 ## Architektur
 
 ```

@@ -14,6 +14,15 @@ Erweiterung gegenueber dem Original: search_nodes deckelt die Trefferzahl
 (SEARCH_RESULT_LIMIT) und read_graph warnt bei grossem Bestand -- damit das
 Gedaechtnis auch nach Jahren und tausenden Eintraegen noch wenig Tokens pro
 Abfrage kostet, statt bei jeder Anfrage alles durchzureichen.
+
+Effizienz ist keine reine Lese-Frage: der Server kann selbst nicht
+beurteilen, was "wichtig" ist -- das entscheidet die schreibende KI beim
+Aufruf von create_entities/create_relations/add_observations. Die
+Tool-Beschreibungen und die Server-instructions weisen deshalb explizit
+darauf hin, nur dauerhaft nuetzliche Fakten zu speichern und Beobachtungen
+nur an die tatsaechlich betroffene Entity zu haengen -- ein mit
+Belanglosigkeiten vollgeschriebener Graph macht spaeter auch die
+gedeckelten Suchergebnisse weniger nuetzlich.
 """
 
 from __future__ import annotations
@@ -43,12 +52,20 @@ mcp = FastMCP(
         "einen Namen, einen entityType und eine Liste von observations (kurze "
         "Fakten als Text). Relations verbinden zwei Entities gerichtet "
         "(from -> to) mit einem relationType. "
-        "WICHTIG fuer Token-Effizienz: read_graph gibt den KOMPLETTEN Graphen "
-        "zurueck und wird mit wachsendem Bestand teuer -- fuer normale Fragen "
-        "immer zuerst search_nodes (Volltextsuche) oder open_nodes (gezielt "
-        "bekannte Namen) benutzen, read_graph nur wenn wirklich alles gebraucht "
-        "wird. search_nodes begrenzt die Trefferzahl automatisch und sagt, wenn "
-        "es mehr Treffer gibt, die durch eine praezisere Suche sichtbar werden."
+        "WICHTIG fuer Token-Effizienz beim Lesen: read_graph gibt den "
+        "KOMPLETTEN Graphen zurueck und wird mit wachsendem Bestand teuer -- "
+        "fuer normale Fragen immer zuerst search_nodes (Volltextsuche) oder "
+        "open_nodes (gezielt bekannte Namen) benutzen, read_graph nur wenn "
+        "wirklich alles gebraucht wird. search_nodes begrenzt die Trefferzahl "
+        "automatisch und sagt, wenn es mehr Treffer gibt, die durch eine "
+        "praezisere Suche sichtbar werden. "
+        "GENAUSO WICHTIG beim Schreiben: nur dauerhaft nuetzliche, wirklich "
+        "relevante Fakten speichern -- nicht jede belanglose oder einmalige "
+        "Kleinigkeit. Eine observation nur an die Entity haengen, zu der sie "
+        "wirklich gehoert, nicht vorsorglich an mehrere. Ein voll geschriebener "
+        "Graph mit Trivialkram macht spaeter auch die (bewusst begrenzten) "
+        "Suchergebnisse weniger brauchbar -- weniger, aber relevante Eintraege "
+        "sind besser als moeglichst viele."
     ),
     host=settings.mcp_host,
     port=settings.mcp_port,
@@ -62,6 +79,11 @@ def create_entities(entities: list[dict]) -> list[dict]:
     entities: Liste von {"name": str, "entityType": str, "observations": [str, ...]}.
     Namen, die es schon gibt, werden uebersprungen (kein Fehler, kein
     Ueberschreiben) -- Rueckgabe sind nur die tatsaechlich neu angelegten.
+
+    Nur fuer dauerhaft relevante Dinge anlegen (Personen, Projekte,
+    wiederkehrende Themen) -- nicht fuer beilaeufige, einmalige
+    Erwaehnungen. Jede zusaetzliche Entity kostet spaeter Kontext bei
+    read_graph/search_nodes.
     """
     return graph.create_entities(entities)
 
@@ -73,6 +95,9 @@ def create_relations(relations: list[dict]) -> list[dict]:
     relations: Liste von {"from": str, "to": str, "relationType": str},
     relationType idiomatisch im Aktiv-Present (z.B. "arbeitet_bei",
     "kennt", "gehoert_zu"). Exakte Duplikate werden uebersprungen.
+
+    Nur fuer tatsaechliche, dauerhafte Zusammenhaenge anlegen -- nicht fuer
+    beilaeufige, einmalige Bezuege.
     """
     return graph.create_relations(relations)
 
@@ -84,6 +109,10 @@ def add_observations(observations: list[dict]) -> list[dict]:
     observations: Liste von {"entityName": str, "contents": [str, ...]}.
     Bereits vorhandene, identische Texte werden uebersprungen. Fehler, wenn
     eine genannte Entity nicht existiert -- vorher mit create_entities anlegen.
+
+    Nur Beobachtungen hinzufuegen, die wirklich zu dieser einen Entity
+    gehoeren und dauerhaft nuetzlich sind -- nicht wahllos Nebensaechliches
+    anhaengen oder denselben Fakt vorsorglich an mehrere Entities schreiben.
     """
     try:
         return graph.add_observations(observations)
