@@ -1,0 +1,58 @@
+services:
+  ida-memory-mcp:
+    image: ghcr.io/${GITHUB_OWNER:-l8tenever}/ida-memory:${IMAGE_TAG:-latest}
+    container_name: ida-memory-mcp
+    restart: unless-stopped
+
+    # Nur auf localhost binden: von aussen ist der Port NICHT erreichbar,
+    # nur der auf demselben Server laufende cloudflared-Tunnel kann ihn
+    # ansprechen. Absicherung nach aussen passiert zusaetzlich per Token
+    # (siehe MCP_AUTH_TOKEN) direkt in der Anwendung. Standardport 4568,
+    # damit es neben Ida-Untis (8000) und Ida-Telegram (4567) auf demselben
+    # Server laufen kann.
+    ports:
+      - "127.0.0.1:${MCP_PORT:-4568}:4568"
+
+    environment:
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?Bitte MCP_AUTH_TOKEN in .env setzen}
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 4568
+      MEMORY_FILE_PATH: /data/memory.jsonl
+      SEARCH_RESULT_LIMIT: ${SEARCH_RESULT_LIMIT:-30}
+
+    volumes:
+      - ida-memory-data:/data
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4568/healthz', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    # Sicherheits-Haertung: kein root im Container (siehe Dockerfile),
+    # keine neuen Privilegien, alle Linux-Capabilities entfernt, Dateisystem
+    # read-only (nur /tmp beschreibbar fuer temporaere Dateien, /data ueber
+    # das benannte Volume fuer das dauerhafte Gedaechtnis).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  ida-memory-data:
