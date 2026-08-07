@@ -216,12 +216,16 @@ oeffentlich lesbar.
 - **Liste**: durchsuchbar, nach Entity-Typ filterbar, seitenweise geladen
   (nicht alles auf einmal) -- Klick auf eine Karte öffnet die Detailansicht
   mit allen Beobachtungen und Verknüpfungen.
-- **Graph**: interaktive Knoten-Kanten-Ansicht (zoombar, verschiebbar,
-  Knoten verschiebbar). Zeigt bei kleinem Bestand den kompletten Graphen,
-  bei großem Bestand nur die am stärksten vernetzten Knoten als Startpunkt
-  -- von dort per Klick auf "Erweitern" gezielt weitererkunden, statt alles
-  auf einmal zu layouten. Bleibt dadurch auch nach Jahren mit tausenden
-  Einträgen flüssig.
+- **Graph**: interaktive Knoten-Kanten-Ansicht (Maus/Rad oder Zwei-Finger-
+  Pinch zum Zoomen, ziehbar, Knoten einzeln verschiebbar), zeigt immer den
+  **kompletten** Graphen, keine Deckelung auf eine Teilmenge -- eigene,
+  synchron vorberechnete Force-Layout-Engine (kein sichtbares "Einpendeln"
+  beim Laden). Knotengröße richtet sich nach Anzahl Verbindungen, nicht
+  nach Beobachtungsanzahl. Klick auf einen Knoten hebt ihn und seine
+  direkten Nachbarn hervor, der Rest wird gedimmt; "Erweitern" laedt
+  gezielt die Nachbarschaft eines Knotens nach (fuer Fokus-Exploration statt
+  alles auf einmal zu betrachten), zusätzlich nach Entity-Typ filterbar wie
+  in der Liste.
 - Passt sich responsiv an Desktop, Tablet und Handy an (Material-3-Design,
   folgt automatisch dem System-Farbschema hell/dunkel).
 

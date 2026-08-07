@@ -22,12 +22,6 @@ from app.knowledge_graph import KnowledgeGraphManager
 _DASHBOARD_HTML_PATH = pathlib.Path(__file__).parent / "dashboard.html"
 _dashboard_html_cache: str | None = None
 
-# Ab wie vielen Entities die Graph-Startansicht nicht mehr "alles" zeigt,
-# sondern nur noch die am staerksten vernetzten (siehe api_graph) --
-# dieselbe Grenze wie KnowledgeGraphManager._LARGE_GRAPH_WARNING_THRESHOLD,
-# nur lokal dupliziert, weil es hier eine reine Darstellungsentscheidung ist.
-_GRAPH_OVERVIEW_THRESHOLD = 120
-
 
 def _dashboard_html() -> str:
     global _dashboard_html_cache
@@ -88,17 +82,13 @@ async def api_graph(request: Request) -> JSONResponse:
             )
         return JSONResponse(ergebnis)
 
-    stats = graph.stats()
-    if stats["entityCount"] <= _GRAPH_OVERVIEW_THRESHOLD:
-        ergebnis = graph.read_graph()
-        ergebnis.pop("hinweis", None)
-    else:
-        ergebnis = graph.top_connected(limit=60)
-        ergebnis["hinweis"] = (
-            f"{stats['entityCount']} Entities insgesamt -- zeige die "
-            f"{len(ergebnis['entities'])} am staerksten vernetzten als Startpunkt. "
-            "Suchen oder auf einen Knoten klicken, um weiter zu erkunden."
-        )
+    # Bewusst IMMER der komplette Graph, keine Deckelung auf die am
+    # staerksten vernetzten Knoten -- ausdruecklich so gewuenscht ("wirklich
+    # alles", nicht nur eine Teilmenge). top_connected()/die fruehere
+    # Groessengrenze bleiben in knowledge_graph.py verfuegbar, falls das
+    # doch mal wieder gebraucht wird, werden hier aber nicht mehr benutzt.
+    ergebnis = graph.read_graph()
+    ergebnis.pop("hinweis", None)
     return JSONResponse(ergebnis)
 
 
