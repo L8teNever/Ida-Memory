@@ -328,9 +328,6 @@ main{ flex:1; min-width:0; min-height:0; position:relative; overflow:hidden; }
 (function(){
 "use strict";
 
-const params = new URLSearchParams(window.location.search);
-const TOKEN = params.get("token") || "";
-
 const NODE_COLORS = ["#6A4FE0","#00838F","#C2185B","#EF6C00","#2E7D32","#5D4037","#5E35B1","#00695C","#AD1457","#4527A0"];
 function colorForType(t){
   let h = 0;
@@ -363,7 +360,6 @@ function el(tag, attrs, children){
 
 function apiUrl(path, extra){
   const url = new URL(path, window.location.origin);
-  url.searchParams.set("token", TOKEN);
   for (const k in (extra || {})){
     const v = extra[k];
     if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, v);
@@ -375,7 +371,7 @@ async function apiFetch(path, extra){
   const res = await fetch(apiUrl(path, extra));
   if (!res.ok){
     let msg = "HTTP " + res.status;
-    if (res.status === 401) msg = "Kein gültiger Zugriff -- Token in der URL prüfen.";
+    if (res.status === 401) msg = "Kein gültiger Zugriff -- bitte Seite neu laden und ggf. neu einloggen.";
     else { try { const body = await res.json(); if (body.message) msg = body.message; } catch(e){} }
     throw new Error(msg);
   }

@@ -90,14 +90,20 @@ KI/Client 3 (z.B. Claude Desktop) --https-->      v
                                                ^
                                        10.7.0.1:4571 auf deinem Server
                                                |
-Browser  --https-->  Cloudflare Tunnel (idamemory.deine-domain.de) --------+
+Browser --(Cloudflare-Access-Login)--> Cloudflare Tunnel (idamemory.deine-domain.de) --+
 ```
 
 Beide Container binden ihren Port **nur auf die Docker-Netzwerk-Gateway-IP
 (`10.7.0.1`)**, wie bei den anderen Ida-*-Containern auf demselben Server --
 von außen nicht direkt erreichbar, nur über den bereits laufenden
-`cloudflared`-Prozess. Zusätzlich verlangt jeder der beiden bei jeder
-Anfrage dasselbe geheime Token (`MCP_AUTH_TOKEN`).
+`cloudflared`-Prozess. Die beiden Hostnamen sind aber **unterschiedlich
+abgesichert**: `memory.*` (MCP) verlangt bei jeder Anfrage das geheime
+`MCP_AUTH_TOKEN` (App-Ebene, damit auch KI-Clients ohne interaktiven Login
+sich verbinden können); `idamemory.*` (Dashboard) hat auf App-Ebene **gar
+keinen** Auth-Zwang mehr, sondern wird ausschließlich durch eine davor
+geschaltete **Cloudflare-Access-Application** geschützt (Login per
+E-Mail-Code) -- siehe Abschnitt "Web-Dashboard" unten. Diese
+Access-Application ist deshalb sicherheitskritisch, nicht optional.
 
 ## Voraussetzungen
 
@@ -144,6 +150,11 @@ ingress:
 i.d.R. automatisch auch der passende DNS-CNAME-Eintrag angelegt.) Danach
 `cloudflared` neu laden.
 
+**Für `idamemory.*` zusätzlich zwingend:** eine Access-Application
+einrichten, siehe Abschnitt "Web-Dashboard" weiter unten -- ohne die ist
+der komplette Wissensgraph für jeden im Internet lesbar, der den Hostnamen
+kennt.
+
 ## 3. Als MCP-Connector hinzufügen
 
 Für jede KI, die mitlesen/schreiben soll (z.B. claude.ai -> Einstellungen ->
@@ -182,11 +193,25 @@ selbst anzusehen -- ohne Umweg über eine KI. Läuft als **eigener Container**
 (`ida-memory-dashboard`, `app/dashboard_server.py`) auf einem **eigenen
 Port** (`DASHBOARD_PORT`, Standard 4571) und damit auch einem eigenen
 Cloudflare-Hostnamen -- bewusst getrennt vom MCP-Endpunkt, nicht im selben
-Prozess. Dieselbe `MCP_AUTH_TOKEN`-Absicherung gilt trotzdem automatisch mit:
+Prozess:
 
 ```
-https://idamemory.deine-domain.de/?token=<MCP_AUTH_TOKEN>
+https://idamemory.deine-domain.de/
 ```
+
+**Absicherung bewusst anders als beim MCP-Endpunkt:** kein `MCP_AUTH_TOKEN`
+in der URL -- der Dashboard-Prozess selbst hat gar keinen App-Level-Auth
+mehr (siehe Sicherheitshinweis im Docstring von `app/dashboard_server.py`).
+Stattdessen haengt vor dem Hostnamen eine **Cloudflare-Access-Application**
+mit einer Policy, die nur eine bestimmte E-Mail-Adresse per Login-Code
+durchlaesst -- einmal einloggen, danach merkt sich der Browser das fuer die
+konfigurierte `session_duration` (z.B. 30 Tage), ganz ohne einen langen
+Token manuell einzutippen. Einrichtung: Zero Trust Dashboard -> Access ->
+Applications -> Add an application -> Self-hosted, Domain =
+`idamemory.deine-domain.de`, Policy mit Include-Regel `E-Mail` = deine
+Adresse. **Wichtig:** dieser Hostname darf niemals ohne eine solche
+Access-Application live gehen -- sonst waere der komplette Wissensgraph
+oeffentlich lesbar.
 
 - **Liste**: durchsuchbar, nach Entity-Typ filterbar, seitenweise geladen
   (nicht alles auf einmal) -- Klick auf eine Karte öffnet die Detailansicht
@@ -216,7 +241,7 @@ JS-Framework, eigene Canvas-Graph-Engine).
 ```bash
 docker compose up -d
 curl -H "Authorization: Bearer $MCP_AUTH_TOKEN" http://10.7.0.1:4568/healthz
-curl -H "Authorization: Bearer $MCP_AUTH_TOKEN" http://10.7.0.1:4571/healthz
+curl http://10.7.0.1:4571/healthz
 ```
 
 ## Troubleshooting
