@@ -28,6 +28,7 @@ class Settings:
     mcp_auth_token: str
     mcp_host: str
     mcp_port: int
+    dashboard_port: int
 
     memory_file_path: str
     search_result_limit: int
@@ -46,6 +47,7 @@ def load_settings() -> Settings:
             mcp_auth_token=mcp_auth_token,
             mcp_host=_optional("MCP_HOST", "0.0.0.0"),
             mcp_port=int(_optional("MCP_PORT", "4568")),
+            dashboard_port=int(_optional("DASHBOARD_PORT", "4571")),
             memory_file_path=_optional("MEMORY_FILE_PATH", "/data/memory.jsonl"),
             search_result_limit=int(_optional("SEARCH_RESULT_LIMIT", "30")),
         )

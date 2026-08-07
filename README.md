@@ -69,24 +69,35 @@ als möglichst viele.
 
 ## Architektur
 
+Zwei getrennte Container, ein gemeinsames Datenvolume -- MCP-Endpunkt und
+Web-Dashboard laufen bewusst auf unterschiedlichen Ports/Hostnamen, nicht
+im selben Prozess:
+
 ```
-KI/Client 1 (z.B. claude.ai)   --https-->  Cloudflare Tunnel (öffentliche Domain)
+KI/Client 1 (z.B. claude.ai)   --https-->  Cloudflare Tunnel (memory.deine-domain.de)
 KI/Client 2 (z.B. eine Routine) --https-->        |
 KI/Client 3 (z.B. Claude Desktop) --https-->      v
-                                       127.0.0.1:4568 auf deinem Server
+                                       10.7.0.1:4568 auf deinem Server
                                                |
                                                v
-                                   Docker-Container "ida-memory-mcp"
+                                Docker-Container "ida-memory-mcp"  (schreibt)
                                                |
                                                v
                                     /data/memory.jsonl (Docker-Volume)
+                                               ^
+                                               | (liest nur)
+                                Docker-Container "ida-memory-dashboard"
+                                               ^
+                                       10.7.0.1:4571 auf deinem Server
+                                               |
+Browser  --https-->  Cloudflare Tunnel (idamemory.deine-domain.de) --------+
 ```
 
-Der Container published seinen Port **nur auf `127.0.0.1`** -- von außen
-nicht direkt erreichbar, nur über den bereits laufenden `cloudflared`-Prozess.
-Zusätzlich verlangt der Server bei jeder Anfrage ein geheimes Token
-(`MCP_AUTH_TOKEN`) -- alle verbundenen Clients teilen sich denselben Token
-und damit dasselbe Gedächtnis.
+Beide Container binden ihren Port **nur auf die Docker-Netzwerk-Gateway-IP
+(`10.7.0.1`)**, wie bei den anderen Ida-*-Containern auf demselben Server --
+von außen nicht direkt erreichbar, nur über den bereits laufenden
+`cloudflared`-Prozess. Zusätzlich verlangt jeder der beiden bei jeder
+Anfrage dasselbe geheime Token (`MCP_AUTH_TOKEN`).
 
 ## Voraussetzungen
 
@@ -117,16 +128,20 @@ docker compose logs -f
 
 ## 2. An den bestehenden Cloudflare Tunnel anbinden
 
-Analog zu Ida-Untis/Ida-Telegram, nur mit eigenem Hostname und Port 4568:
+Zwei Ingress-Regeln, eine pro Container (analog zu den anderen
+Ida-*-Projekten):
 
 ```yaml
 ingress:
   - hostname: memory.deine-domain.de
-    service: http://localhost:4568
+    service: http://10.7.0.1:4568
+  - hostname: idamemory.deine-domain.de
+    service: http://10.7.0.1:4571
   - service: http_status:404
 ```
 
-(Bzw. im Zero-Trust-Dashboard unter Public Hostname eintragen.) Danach
+(Bzw. im Zero-Trust-Dashboard unter Public Hostname eintragen -- dabei wird
+i.d.R. automatisch auch der passende DNS-CNAME-Eintrag angelegt.) Danach
 `cloudflared` neu laden.
 
 ## 3. Als MCP-Connector hinzufügen
@@ -162,13 +177,15 @@ Namen und Verhalten entsprechen 1:1 dem offiziellen Referenzserver:
 
 ## Web-Dashboard
 
-Neben den MCP-Tools hat der Server auch ein Browser-Dashboard, um den
-Wissensgraphen selbst anzusehen -- ohne Umweg über eine KI. Läuft auf
-demselben Container/Port wie der MCP-Endpunkt (kein eigener Tunnel-Eintrag
-nötig), dieselbe `MCP_AUTH_TOKEN`-Absicherung gilt automatisch mit:
+Neben den MCP-Tools gibt es ein Browser-Dashboard, um den Wissensgraphen
+selbst anzusehen -- ohne Umweg über eine KI. Läuft als **eigener Container**
+(`ida-memory-dashboard`, `app/dashboard_server.py`) auf einem **eigenen
+Port** (`DASHBOARD_PORT`, Standard 4571) und damit auch einem eigenen
+Cloudflare-Hostnamen -- bewusst getrennt vom MCP-Endpunkt, nicht im selben
+Prozess. Dieselbe `MCP_AUTH_TOKEN`-Absicherung gilt trotzdem automatisch mit:
 
 ```
-https://memory.deine-domain.de/?token=<MCP_AUTH_TOKEN>
+https://idamemory.deine-domain.de/?token=<MCP_AUTH_TOKEN>
 ```
 
 - **Liste**: durchsuchbar, nach Entity-Typ filterbar, seitenweise geladen
@@ -185,16 +202,21 @@ https://memory.deine-domain.de/?token=<MCP_AUTH_TOKEN>
 
 Backend-seitig (`app/dashboard.py`, neue Lesefunktionen in
 `app/knowledge_graph.py`: `list_entities`, `entity_detail`, `neighborhood`,
-`top_connected`, `stats`) nutzt dieselbe `KnowledgeGraphManager`-Instanz wie
-die MCP-Tools -- eine einzige Quelle der Wahrheit, kein zweiter
-Speicherpfad. Alles clientseitig in `app/dashboard.html` (eine Datei, kein
-Build-Schritt, kein externes JS-Framework, eigene Canvas-Graph-Engine).
+`top_connected`, `stats`) liest dieselbe `/data/memory.jsonl` wie die
+MCP-Tools -- eine einzige Quelle der Wahrheit, kein zweiter Speicherpfad,
+auch wenn es ein eigener Prozess/Container ist (`app/dashboard_server.py`
+teilt sich das Docker-Volume mit `app/server.py`, schreibt aber nie selbst
+hinein -- `_save()` schreibt atomar, damit ein gleichzeitiger Lesevorgang
+nie eine unvollständige Datei zu sehen bekommt). Alles clientseitig in
+`app/dashboard.html` (eine Datei, kein Build-Schritt, kein externes
+JS-Framework, eigene Canvas-Graph-Engine).
 
 ## Lokal testen ohne Cloudflare
 
 ```bash
 docker compose up -d
-curl -H "Authorization: Bearer $MCP_AUTH_TOKEN" http://127.0.0.1:4568/healthz
+curl -H "Authorization: Bearer $MCP_AUTH_TOKEN" http://10.7.0.1:4568/healthz
+curl -H "Authorization: Bearer $MCP_AUTH_TOKEN" http://10.7.0.1:4571/healthz
 ```
 
 ## Troubleshooting

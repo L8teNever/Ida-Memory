@@ -23,6 +23,7 @@ lieber gezielt zu suchen.
 from __future__ import annotations
 
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -75,6 +76,11 @@ class KnowledgeGraphManager:
         return {"entities": entities, "relations": relations}
 
     def _save(self, graph: dict[str, list[dict[str, Any]]]) -> None:
+        """Schreibt atomar (temp-Datei + os.replace) statt direkt in die
+        Zieldatei -- seit das Dashboard als eigener Prozess/Container
+        dieselbe Datei nur lesend mitbenutzt (siehe app/dashboard_server.py),
+        koennte ein Leser sonst mitten in einem Schreibvorgang eine
+        unvollstaendige/kaputte Zeile zu sehen bekommen."""
         lines = [
             json.dumps({"type": "entity", **entity}, ensure_ascii=False)
             for entity in graph["entities"]
@@ -82,7 +88,14 @@ class KnowledgeGraphManager:
             json.dumps({"type": "relation", **relation}, ensure_ascii=False)
             for relation in graph["relations"]
         ]
-        self._path.write_text("\n".join(lines), encoding="utf-8")
+        tmp_path = self._path.with_suffix(self._path.suffix + f".tmp-{os.getpid()}")
+        try:
+            tmp_path.write_text("\n".join(lines), encoding="utf-8")
+            os.replace(tmp_path, self._path)
+        except BaseException:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
 
     # -- Schreiboperationen (Semantik 1:1 wie im Original) ----------------
 

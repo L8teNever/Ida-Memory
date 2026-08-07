@@ -18,7 +18,7 @@ USER appuser
 
 VOLUME ["/data"]
 
-EXPOSE 4568
+EXPOSE 4568 4571
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import os,sys,urllib.request; \

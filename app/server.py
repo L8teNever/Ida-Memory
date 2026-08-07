@@ -35,7 +35,6 @@ from starlette.responses import JSONResponse
 
 from app.auth import BearerAuthMiddleware
 from app.config import load_settings
-from app.dashboard import register_dashboard_routes
 from app.knowledge_graph import KnowledgeGraphError, KnowledgeGraphManager
 
 logging.basicConfig(
@@ -195,7 +194,6 @@ async def healthz(request):
 def build_app():
     app = mcp.streamable_http_app()
     app.add_route("/healthz", healthz, methods=["GET"])
-    register_dashboard_routes(app, graph)
     app.add_middleware(BearerAuthMiddleware, token=settings.mcp_auth_token)
     return app
 
@@ -203,8 +201,7 @@ def build_app():
 def main() -> None:
     app = build_app()
     log.info(
-        "Ida-Memory MCP Server startet auf %s:%s (Endpunkt: /mcp, Health: /healthz, "
-        "Dashboard: /?token=..., Speicher: %s)",
+        "Ida-Memory MCP Server startet auf %s:%s (Endpunkt: /mcp, Health: /healthz, Speicher: %s)",
         settings.mcp_host,
         settings.mcp_port,
         settings.memory_file_path,

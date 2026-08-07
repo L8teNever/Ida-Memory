@@ -4,14 +4,14 @@ services:
     container_name: ida-memory-mcp
     restart: unless-stopped
 
-    # Nur auf localhost binden: von aussen ist der Port NICHT erreichbar,
-    # nur der auf demselben Server laufende cloudflared-Tunnel kann ihn
-    # ansprechen. Absicherung nach aussen passiert zusaetzlich per Token
-    # (siehe MCP_AUTH_TOKEN) direkt in der Anwendung. Standardport 4568,
-    # damit es neben Ida-Untis (8000) und Ida-Telegram (4567) auf demselben
-    # Server laufen kann.
+    # Bind-IP wie bei den anderen Ida-*-Containern auf diesem Server: NICHT
+    # 127.0.0.1, sondern die Docker-Netzwerk-Gateway-IP, ueber die der
+    # separat laufende cloudflared-Tunnel-Container diesen Service erreicht.
+    # Absicherung nach aussen zusaetzlich per Token direkt in der Anwendung.
+    # Standardport 4568, damit es neben Ida-Untis (8000) und Ida-Telegram
+    # (4567) auf demselben Server laufen kann.
     ports:
-      - "127.0.0.1:${MCP_PORT:-4568}:4568"
+      - "10.7.0.1:${MCP_PORT:-4568}:4568"
 
     environment:
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?Bitte MCP_AUTH_TOKEN in .env setzen}
@@ -40,6 +40,57 @@ services:
     # keine neuen Privilegien, alle Linux-Capabilities entfernt, Dateisystem
     # read-only (nur /tmp beschreibbar fuer temporaere Dateien, /data ueber
     # das benannte Volume fuer das dauerhafte Gedaechtnis).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Eigener Container fuer das Web-Dashboard -- eigener Port/eigener
+  # Hostname, bewusst getrennt vom MCP-Endpunkt oben. Gleiches Image, nur
+  # ein anderer Start-Befehl (app/dashboard_server.py statt app/server.py).
+  # Liest dasselbe Volume wie ida-memory-mcp mit, aber nur lesend -- hier
+  # wird nie geschrieben, nur der MCP-Server legt Entities/Relations an.
+  ida-memory-dashboard:
+    image: ghcr.io/${GITHUB_OWNER:-l8tenever}/ida-memory:${IMAGE_TAG:-latest}
+    container_name: ida-memory-dashboard
+    command: ["python", "-m", "app.dashboard_server"]
+    restart: unless-stopped
+
+    ports:
+      - "10.7.0.1:${DASHBOARD_PORT:-4571}:4571"
+
+    environment:
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?Bitte MCP_AUTH_TOKEN in .env setzen}
+      MCP_HOST: 0.0.0.0
+      DASHBOARD_PORT: 4571
+      MEMORY_FILE_PATH: /data/memory.jsonl
+      SEARCH_RESULT_LIMIT: ${SEARCH_RESULT_LIMIT:-30}
+
+    volumes:
+      - ida-memory-data:/data
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4571/healthz', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
     security_opt:
       - no-new-privileges:true
     cap_drop:
