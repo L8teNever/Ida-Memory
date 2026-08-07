@@ -71,8 +71,13 @@ button, input{ font-family:inherit; }
 }
 .stats-chip b{ color:var(--md-on-surface); font-weight:600; }
 
-/* --- Layout: nav + content --- */
-.shell{ flex:1; display:flex; min-height:0; }
+/* --- Layout: nav + content ---
+   Mobil (Basis): .shell ist eine SPALTE, .nav hat order:2 (main hat
+   implizit order:0) -- main also oben, nav unten als Leiste. Ohne
+   flex-direction:column hier waere .shell eine ZEILE, und order:2 haette
+   .nav dann RECHTS neben main platziert statt darunter -- genau der Bug,
+   der als "komplette Sidebar rechts am Handy" gemeldet wurde. */
+.shell{ flex:1; display:flex; flex-direction:column; min-height:0; }
 .nav{
   display:flex; flex-direction:row; justify-content:space-around; align-items:center;
   background:var(--md-surface-container); flex-shrink:0;
@@ -143,10 +148,17 @@ main{ flex:1; min-width:0; min-height:0; position:relative; overflow:hidden; }
 
 /* --- Graph view --- */
 .graph-toolbar{
-  position:absolute; top:14px; left:14px; right:14px; display:flex; gap:8px; align-items:flex-start; z-index:4;
-  pointer-events:none;
+  position:absolute; top:14px; left:14px; right:14px; z-index:4;
+  pointer-events:none; display:flex; flex-direction:column; gap:8px;
 }
-.graph-toolbar > *{ pointer-events:auto; }
+.graph-toolbar-row{ display:flex; gap:8px; align-items:flex-start; }
+.graph-toolbar-row > *{ pointer-events:auto; }
+.graph-type-filters{
+  display:flex; gap:8px; overflow-x:auto; scrollbar-width:none; pointer-events:auto;
+}
+.graph-type-filters::-webkit-scrollbar{ display:none; }
+.graph-type-filters .chip{ background:var(--md-surface-container-high); box-shadow:0 1px 3px rgba(0,0,0,.15); }
+.graph-type-filters .chip.active{ background:var(--md-secondary-container); }
 .graph-search{ position:relative; flex:1; max-width:360px; }
 .graph-search .search-field{ background:var(--md-surface-container-high); box-shadow:0 1px 3px rgba(0,0,0,.15); }
 .graph-suggestions{
@@ -235,7 +247,11 @@ main{ flex:1; min-width:0; min-height:0; position:relative; overflow:hidden; }
 /* --- Responsive: medium (tablet) and up --- */
 @media (min-width:600px){
   .nav{
-    order:1; flex-direction:column; justify-content:flex-start; gap:6px; padding:20px 10px; width:88px;
+    /* order:0 hebt das order:2 von der Basis-Regel wieder auf -- .nav
+       steht im HTML VOR <main>, bei gleichem order gewinnt also die
+       Dokument-Reihenfolge und die Leiste landet links (Rail), nicht
+       rechts. Mit order:1 (>0) waere sie faelschlich rechts gelandet. */
+    order:0; flex-direction:column; justify-content:flex-start; gap:6px; padding:20px 10px; width:88px;
     height:100%;
   }
   .nav-btn{ padding:8px 16px; width:100%; }
@@ -290,16 +306,19 @@ main{ flex:1; min-width:0; min-height:0; position:relative; overflow:hidden; }
       <section id="view-graph" class="view">
         <canvas id="graphCanvas"></canvas>
         <div class="graph-toolbar">
-          <div class="graph-search">
-            <div class="search-field">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-              <input id="graphSearchInput" placeholder="Knoten suchen..." autocomplete="off">
+          <div class="graph-toolbar-row">
+            <div class="graph-search">
+              <div class="search-field">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                <input id="graphSearchInput" placeholder="Knoten suchen..." autocomplete="off">
+              </div>
+              <div class="graph-suggestions" id="graphSuggestions"></div>
             </div>
-            <div class="graph-suggestions" id="graphSuggestions"></div>
+            <button class="icon-btn" id="graphResetBtn" title="Übersicht">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 12a9 9 0 1 1 3 6.7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 8v5h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
           </div>
-          <button class="icon-btn" id="graphResetBtn" title="Übersicht">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M3 12a9 9 0 1 1 3 6.7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 8v5h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
+          <div class="graph-type-filters" id="graphTypeFilters"></div>
         </div>
         <div id="graphHint" class="graph-hint" hidden></div>
       </section>
@@ -572,8 +591,23 @@ const GraphView = function(canvas){
   this.running = false; this.settleCounter = 0;
   this.hasLoaded = false;
   this.focus = null;
+  this.typeFilter = "";
   this.dpr = Math.max(1, window.devicePixelRatio || 1);
   this._bind();
+};
+
+GraphView.prototype._nodeVisible = function(node){
+  return !this.typeFilter || node.entityType === this.typeFilter;
+};
+
+GraphView.prototype.setTypeFilter = function(type){
+  this.typeFilter = type;
+  if (this.selected && !this._nodeVisible(this.selected)){
+    this.selected = null;
+    const pop = document.getElementById("nodePopover");
+    if (pop) pop.remove();
+  }
+  this.draw();
 };
 
 GraphView.prototype.resize = function(){
@@ -607,6 +641,7 @@ GraphView.prototype._bind = function(){
     const [wx, wy] = self.screenToWorld(sx, sy);
     let found = null;
     self.nodes.forEach(function(n){
+      if (!self._nodeVisible(n)) return;
       const dx = n.x - wx, dy = n.y - wy;
       if (Math.sqrt(dx*dx + dy*dy) <= n.r + 4) found = n;
     });
@@ -659,8 +694,31 @@ GraphView.prototype._bind = function(){
     c.classList.remove("dragging");
   });
 
+  function touchDist(touches){
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx*dx + dy*dy);
+  }
+  function touchCenter(touches, rect){
+    return [
+      (touches[0].clientX + touches[1].clientX) / 2 - rect.left,
+      (touches[0].clientY + touches[1].clientY) / 2 - rect.top,
+    ];
+  }
+
+  let pinchStartDist = null;
+  let pinchStartScale = 1;
+
   c.addEventListener("touchstart", function(ev){
+    if (ev.touches.length === 2){
+      self.dragNode = null;
+      self.panning = false;
+      pinchStartDist = touchDist(ev.touches);
+      pinchStartScale = self.scale;
+      return;
+    }
     if (ev.touches.length !== 1) return;
+    pinchStartDist = null;
     const t = ev.touches[0];
     const rect = c.getBoundingClientRect();
     const sx = t.clientX - rect.left, sy = t.clientY - rect.top;
@@ -669,6 +727,17 @@ GraphView.prototype._bind = function(){
     if (n){ self.dragNode = n; n.fixed = true; } else { self.panning = true; self.panLast = [sx, sy]; }
   }, { passive:true });
   c.addEventListener("touchmove", function(ev){
+    if (ev.touches.length === 2 && pinchStartDist){
+      const rect = c.getBoundingClientRect();
+      const dist = touchDist(ev.touches);
+      const [cx, cy] = touchCenter(ev.touches, rect);
+      const [wx, wy] = self.screenToWorld(cx, cy);
+      self.scale = Math.min(4, Math.max(0.15, pinchStartScale * (dist / pinchStartDist)));
+      self.offsetX = cx - wx * self.scale;
+      self.offsetY = cy - wy * self.scale;
+      self.draw();
+      return;
+    }
     if (ev.touches.length !== 1) return;
     const t = ev.touches[0];
     const rect = c.getBoundingClientRect();
@@ -683,6 +752,8 @@ GraphView.prototype._bind = function(){
     }
   }, { passive:true });
   c.addEventListener("touchend", function(ev){
+    if (ev.touches.length < 2) pinchStartDist = null;
+    if (ev.touches.length > 0) return;
     if (self.dragNode){
       self.dragNode.fixed = false;
       if (!self.dragMoved) self.selectNode(self.dragNode);
@@ -869,6 +940,7 @@ GraphView.prototype.draw = function(){
   ctx.strokeStyle = outline;
   this.edges.forEach(function(e){
     if (!e._from || !e._to) return;
+    if (!self._nodeVisible(e._from) || !self._nodeVisible(e._to)) return;
     const [ax, ay] = self.worldToScreen(e._from.x, e._from.y);
     const [bx, by] = self.worldToScreen(e._to.x, e._to.y);
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
@@ -876,6 +948,7 @@ GraphView.prototype.draw = function(){
 
   const showLabels = this.scale > 0.55;
   this.nodes.forEach(function(n){
+    if (!self._nodeVisible(n)) return;
     const [sx, sy] = self.worldToScreen(n.x, n.y);
     ctx.beginPath();
     ctx.arc(sx, sy, n.r * Math.max(0.6, self.scale), 0, Math.PI*2);
@@ -928,11 +1001,29 @@ document.addEventListener("click", function(ev){
 });
 document.getElementById("graphResetBtn").addEventListener("click", function(){ graphView.loadOverview(); });
 
+const graphTypeFiltersEl = document.getElementById("graphTypeFilters");
+function loadGraphTypeFilters(stats){
+  graphTypeFiltersEl.innerHTML = "";
+  const allChip = el("button", {class:"chip active", onclick: function(){ selectGraphType(""); }}, ["Alle"]);
+  graphTypeFiltersEl.appendChild(allChip);
+  (stats && stats.entityTypes || []).forEach(function(t){
+    const chip = el("button", {class:"chip", onclick: function(){ selectGraphType(t.entityType); }}, [t.entityType]);
+    graphTypeFiltersEl.appendChild(chip);
+  });
+}
+function selectGraphType(type){
+  Array.prototype.slice.call(graphTypeFiltersEl.children).forEach(function(chip, i){
+    chip.classList.toggle("active", i === 0 ? type === "" : chip.textContent === type);
+  });
+  graphView.setTypeFilter(type);
+}
+
 /* ---------------- Init ---------------- */
 async function init(){
   graphView = new GraphView(document.getElementById("graphCanvas"));
   const stats = await loadStats();
   await loadTypeFilters(stats);
+  loadGraphTypeFilters(stats);
   await loadEntities(true);
 }
 init();
