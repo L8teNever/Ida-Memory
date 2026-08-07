@@ -787,7 +787,11 @@ GraphView.prototype._simulate = function(){
   const nodes = Array.from(this.nodes.values());
   const n = nodes.length;
   if (n === 0) return 0;
-  const REPEL = 2600, SPRING = 0.02, IDEAL = 110, DAMP = 0.82, CENTER = 0.0025;
+  // REPEL deutlich hoeher und CENTER deutlich niedriger als urspruenglich --
+  // sonst zieht die Zentrierungskraft nicht verbundene Knoten staerker
+  // zusammen als die Abstossung sie auseinanderdrueckt, und bei vielen
+  // Knoten ballt sich alles in der Mitte zu einem unleserlichen Klumpen.
+  const REPEL = 9000, SPRING = 0.02, IDEAL = 130, DAMP = 0.82, CENTER = 0.0006;
 
   for (let i = 0; i < n; i++){
     let fx = 0, fy = 0;
@@ -876,17 +880,32 @@ GraphView.prototype.showPopover = function(node){
     el("button", {class:"btn btn-filled", onclick: function(){ openEntityDetail(node.name); }}, ["Details"]),
   ]));
   document.body.appendChild(pop);
+  // Tatsaechliche gerenderte Breite nehmen (nicht die 260px aus dem CSS
+  // fest annehmen) -- auf schmalen Handy-Bildschirmen greift max-width:80vw
+  // und das Popover ist tatsaechlich schmaler. Alle vier Raender klemmen,
+  // vorher fehlte die linke Klemme komplett: ein Knoten nah am linken
+  // Bildschirmrand konnte das Popover ganz aus der sichtbaren Flaeche
+  // schieben (gemeldet als "ausserhalb von der Sicht am Handy").
+  const pw = pop.offsetWidth || 260, ph = pop.offsetHeight || 160;
   let left = rect.left + sx + 16, top = rect.top + sy - 20;
-  const pw = 260, ph = pop.offsetHeight || 160;
   if (left + pw > window.innerWidth - 10) left = rect.left + sx - pw - 16;
+  if (left < 10) left = 10;
+  if (left + pw > window.innerWidth - 10) left = Math.max(10, window.innerWidth - pw - 10);
   if (top + ph > window.innerHeight - 10) top = window.innerHeight - ph - 10;
   if (top < 10) top = 10;
   pop.style.left = left + "px";
   pop.style.top = top + "px";
   const closeOnOutside = function(ev){
-    if (!pop.contains(ev.target)){ pop.remove(); document.removeEventListener("mousedown", closeOnOutside); }
+    if (!pop.contains(ev.target)){
+      pop.remove();
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("touchstart", closeOnOutside);
+    }
   };
-  setTimeout(function(){ document.addEventListener("mousedown", closeOnOutside); }, 0);
+  setTimeout(function(){
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("touchstart", closeOnOutside, { passive:true });
+  }, 0);
 };
 
 GraphView.prototype.expand = async function(name){
@@ -946,7 +965,12 @@ GraphView.prototype.draw = function(){
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
   });
 
-  const showLabels = this.scale > 0.55;
+  // Labels immer zeichnen statt ab einer Zoomstufe komplett zu
+  // verschwinden -- die Schriftgroesse skaliert stattdessen proportional
+  // mit, mit einer Mindestgroesse, damit sie beim Rauszoomen klein statt
+  // unsichtbar werden (vorher: "Namen werden beim Rauszoomen nicht mehr
+  // angezeigt").
+  const labelSize = Math.max(9, Math.min(16, 12 * this.scale));
   this.nodes.forEach(function(n){
     if (!self._nodeVisible(n)) return;
     const [sx, sy] = self.worldToScreen(n.x, n.y);
@@ -959,12 +983,10 @@ GraphView.prototype.draw = function(){
     } else {
       ctx.lineWidth = 2; ctx.strokeStyle = surface; ctx.stroke();
     }
-    if (showLabels){
-      ctx.font = "500 12px 'Google Sans', Roboto, sans-serif";
-      ctx.fillStyle = onSurface;
-      ctx.textAlign = "center";
-      ctx.fillText(n.name.length > 20 ? n.name.slice(0,19)+"…" : n.name, sx, sy + n.r * Math.max(0.6,self.scale) + 14);
-    }
+    ctx.font = "500 " + labelSize + "px 'Google Sans', Roboto, sans-serif";
+    ctx.fillStyle = onSurface;
+    ctx.textAlign = "center";
+    ctx.fillText(n.name.length > 20 ? n.name.slice(0,19)+"…" : n.name, sx, sy + n.r * Math.max(0.6,self.scale) + 14);
   });
   ctx.restore();
 };
