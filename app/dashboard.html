@@ -770,6 +770,17 @@ GraphView.prototype.wake = function(){
   if (!this.running){ this.running = true; requestAnimationFrame(this._tick.bind(this)); }
 };
 
+// Laeuft die Physik SYNCHRON ohne dazwischen zu zeichnen, statt ueber
+// requestAnimationFrame sichtbar "einzupendeln" -- beim Laden/Wechseln auf
+// die Graph-Ansicht sollen die Knoten von Anfang an an ihrem (ungefaehr)
+// endgueltigen Platz stehen, nicht erst sichtbar aus der zufaelligen
+// Startposition dorthin wandern (wurde als unuebersichtlich gemeldet).
+GraphView.prototype._presimulate = function(iterations){
+  for (let i = 0; i < iterations; i++){
+    this._simulate();
+  }
+};
+
 GraphView.prototype._tick = function(){
   if (!this.running) return;
   const energy = this._simulate();
@@ -831,17 +842,39 @@ GraphView.prototype._simulate = function(){
 };
 
 GraphView.prototype._placeNode = function(name, entityType, obsCount){
-  if (this.nodes.has(name)) return this.nodes.get(name);
+  if (this.nodes.has(name)){
+    const existing = this.nodes.get(name);
+    existing.observationCount = obsCount;
+    return existing;
+  }
   const angle = Math.random() * Math.PI * 2;
   const radius = 40 + Math.random() * 120;
   const node = {
     name: name, entityType: entityType, observationCount: obsCount,
     x: Math.cos(angle) * radius, y: Math.sin(angle) * radius,
     vx:0, vy:0, fx:0, fy:0, fixed:false,
-    r: 8 + Math.min(14, Math.sqrt(obsCount || 0) * 3),
+    degree: 0, r: 10, // r wird in _recomputeSizes() nach Kanten-Kenntnis gesetzt
   };
   this.nodes.set(name, node);
   return node;
+};
+
+// Groesse haengt bewusst NUR an der Anzahl Verbindungen (eingehend +
+// ausgehend), nicht an der Beobachtungsanzahl -- gleich stark vernetzte
+// Knoten sollen immer gleich gross erscheinen, egal wie viel Text an ihnen
+// haengt.
+GraphView.prototype._recomputeSizes = function(){
+  const grad = new Map();
+  this.nodes.forEach(function(n){ grad.set(n.name, 0); });
+  this.edges.forEach(function(e){
+    if (grad.has(e.from)) grad.set(e.from, grad.get(e.from) + 1);
+    if (grad.has(e.to)) grad.set(e.to, grad.get(e.to) + 1);
+  });
+  this.nodes.forEach(function(n){
+    const d = grad.get(n.name) || 0;
+    n.degree = d;
+    n.r = 9 + Math.min(18, Math.sqrt(d) * 5);
+  });
 };
 
 GraphView.prototype.setData = function(data, mergeMode){
@@ -855,8 +888,31 @@ GraphView.prototype.setData = function(data, mergeMode){
     if (!exists) self.edges.push({ from:r.from, to:r.to, relationType:r.relationType });
   });
   this.edges.forEach(function(e){ e._from = self.nodes.get(e.from); e._to = self.nodes.get(e.to); });
+  this._recomputeSizes();
+  this._presimulate(220);
   this.hasLoaded = true;
-  this.wake();
+  this.draw();
+};
+
+// Ausgewaehlter Knoten + alle direkt damit verbundenen Namen -- Grundlage
+// fuers Hervorheben beim Anklicken (draw() dimmt alles, was nicht in
+// dieser Menge ist).
+GraphView.prototype._highlightSet = function(){
+  if (!this.selected) return null;
+  const set = new Set([this.selected.name]);
+  this.edges.forEach(function(e){
+    if (e.from === this.selected.name) set.add(e.to);
+    if (e.to === this.selected.name) set.add(e.from);
+  }, this);
+  return set;
+};
+
+GraphView.prototype.clearSelection = function(){
+  if (!this.selected) return;
+  this.selected = null;
+  const pop = document.getElementById("nodePopover");
+  if (pop) pop.remove();
+  this.draw();
 };
 
 GraphView.prototype.selectNode = function(node){
@@ -895,9 +951,13 @@ GraphView.prototype.showPopover = function(node){
   if (top < 10) top = 10;
   pop.style.left = left + "px";
   pop.style.top = top + "px";
+  const self = this;
   const closeOnOutside = function(ev){
     if (!pop.contains(ev.target)){
-      pop.remove();
+      // clearSelection() statt nur pop.remove(): sonst bleibt der Rest des
+      // Graphen gedimmt (Hervorhebung haengt an this.selected), obwohl gar
+      // kein Popover mehr zu sehen ist, ein sichtbar inkonsistenter Zustand.
+      self.clearSelection();
       document.removeEventListener("mousedown", closeOnOutside);
       document.removeEventListener("touchstart", closeOnOutside);
     }
@@ -955,15 +1015,23 @@ GraphView.prototype.draw = function(){
   const tertiary = style.getPropertyValue("--md-tertiary").trim();
 
   const self = this;
+  // Ausgewaehlter Knoten + direkte Nachbarn hervorheben: alles ausserhalb
+  // dieser Menge wird gedimmt statt ausgeblendet (bleibt so als Kontext
+  // sichtbar, ohne vom eigentlich Interessanten abzulenken).
+  const highlight = this._highlightSet();
+  const DIM_ALPHA = 0.18;
+
   ctx.lineWidth = 1.4;
   ctx.strokeStyle = outline;
   this.edges.forEach(function(e){
     if (!e._from || !e._to) return;
     if (!self._nodeVisible(e._from) || !self._nodeVisible(e._to)) return;
+    ctx.globalAlpha = (highlight && !(highlight.has(e.from) && highlight.has(e.to))) ? DIM_ALPHA : 1;
     const [ax, ay] = self.worldToScreen(e._from.x, e._from.y);
     const [bx, by] = self.worldToScreen(e._to.x, e._to.y);
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
   });
+  ctx.globalAlpha = 1;
 
   // Labels immer zeichnen statt ab einer Zoomstufe komplett zu
   // verschwinden -- die Schriftgroesse skaliert stattdessen proportional
@@ -973,6 +1041,7 @@ GraphView.prototype.draw = function(){
   const labelSize = Math.max(9, Math.min(16, 12 * this.scale));
   this.nodes.forEach(function(n){
     if (!self._nodeVisible(n)) return;
+    ctx.globalAlpha = (highlight && !highlight.has(n.name)) ? DIM_ALPHA : 1;
     const [sx, sy] = self.worldToScreen(n.x, n.y);
     ctx.beginPath();
     ctx.arc(sx, sy, n.r * Math.max(0.6, self.scale), 0, Math.PI*2);
@@ -988,6 +1057,7 @@ GraphView.prototype.draw = function(){
     ctx.textAlign = "center";
     ctx.fillText(n.name.length > 20 ? n.name.slice(0,19)+"…" : n.name, sx, sy + n.r * Math.max(0.6,self.scale) + 14);
   });
+  ctx.globalAlpha = 1;
   ctx.restore();
 };
 
