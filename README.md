@@ -160,6 +160,36 @@ Namen und Verhalten entsprechen 1:1 dem offiziellen Referenzserver:
 | `search_nodes(query)` | Volltextsuche über Namen/Typ/Beobachtungen, Trefferzahl begrenzt (`SEARCH_RESULT_LIMIT`). Normalfall für Abfragen. |
 | `open_nodes(names)` | Gibt gezielt bekannte Entities zurück (z.B. aus einem vorherigen `search_nodes`-Ergebnis). |
 
+## Web-Dashboard
+
+Neben den MCP-Tools hat der Server auch ein Browser-Dashboard, um den
+Wissensgraphen selbst anzusehen -- ohne Umweg über eine KI. Läuft auf
+demselben Container/Port wie der MCP-Endpunkt (kein eigener Tunnel-Eintrag
+nötig), dieselbe `MCP_AUTH_TOKEN`-Absicherung gilt automatisch mit:
+
+```
+https://memory.deine-domain.de/?token=<MCP_AUTH_TOKEN>
+```
+
+- **Liste**: durchsuchbar, nach Entity-Typ filterbar, seitenweise geladen
+  (nicht alles auf einmal) -- Klick auf eine Karte öffnet die Detailansicht
+  mit allen Beobachtungen und Verknüpfungen.
+- **Graph**: interaktive Knoten-Kanten-Ansicht (zoombar, verschiebbar,
+  Knoten verschiebbar). Zeigt bei kleinem Bestand den kompletten Graphen,
+  bei großem Bestand nur die am stärksten vernetzten Knoten als Startpunkt
+  -- von dort per Klick auf "Erweitern" gezielt weitererkunden, statt alles
+  auf einmal zu layouten. Bleibt dadurch auch nach Jahren mit tausenden
+  Einträgen flüssig.
+- Passt sich responsiv an Desktop, Tablet und Handy an (Material-3-Design,
+  folgt automatisch dem System-Farbschema hell/dunkel).
+
+Backend-seitig (`app/dashboard.py`, neue Lesefunktionen in
+`app/knowledge_graph.py`: `list_entities`, `entity_detail`, `neighborhood`,
+`top_connected`, `stats`) nutzt dieselbe `KnowledgeGraphManager`-Instanz wie
+die MCP-Tools -- eine einzige Quelle der Wahrheit, kein zweiter
+Speicherpfad. Alles clientseitig in `app/dashboard.html` (eine Datei, kein
+Build-Schritt, kein externes JS-Framework, eigene Canvas-Graph-Engine).
+
 ## Lokal testen ohne Cloudflare
 
 ```bash

@@ -263,3 +263,152 @@ class KnowledgeGraphManager:
                 if r["from"] in filtered_names or r["to"] in filtered_names
             ]
             return {"entities": filtered_entities, "relations": filtered_relations}
+
+    # -- Nur fuers Web-Dashboard (app/dashboard.py) -------------------------
+    #
+    # Dieselbe Grundidee wie bei search_nodes: nie mehr zurueckgeben, als eine
+    # Ansicht gerade wirklich braucht, damit das Dashboard auch bei einem
+    # jahrelang gewachsenen Bestand mit tausenden Eintraegen noch schnell
+    # bleibt -- Listen sind serverseitig paginiert, die Graph-Ansicht bekommt
+    # gezielt eine Nachbarschaft statt immer den kompletten Graphen.
+
+    def stats(self) -> dict[str, Any]:
+        with self._lock:
+            graph = self._load()
+        typ_anzahl: dict[str, int] = {}
+        for e in graph["entities"]:
+            typ_anzahl[e["entityType"]] = typ_anzahl.get(e["entityType"], 0) + 1
+        entity_types = sorted(
+            ({"entityType": t, "count": c} for t, c in typ_anzahl.items()),
+            key=lambda x: (-x["count"], x["entityType"]),
+        )
+        return {
+            "entityCount": len(graph["entities"]),
+            "relationCount": len(graph["relations"]),
+            "entityTypes": entity_types,
+        }
+
+    def list_entities(
+        self, offset: int = 0, limit: int = 50, query: str = "", entity_type: str = ""
+    ) -> dict[str, Any]:
+        """Paginierte Uebersichtsliste -- OHNE die Beobachtungstexte selbst (nur
+        Name/Typ/Anzahl), damit eine Seite auch bei riesigem Bestand klein und
+        schnell bleibt. query (optional) filtert wie search_nodes per
+        Volltextsuche, entity_type (optional) exakt nach Typ."""
+        with self._lock:
+            graph = self._load()
+        entities = graph["entities"]
+        if query:
+            q = query.lower()
+            entities = [
+                e
+                for e in entities
+                if q in e["name"].lower()
+                or q in e["entityType"].lower()
+                or any(q in o.lower() for o in e["observations"])
+            ]
+        if entity_type:
+            entities = [e for e in entities if e["entityType"] == entity_type]
+
+        entities_sorted = sorted(entities, key=lambda e: e["name"].lower())
+        total = len(entities_sorted)
+        offset = max(0, offset)
+        limit = max(1, min(limit, 200))
+        page = entities_sorted[offset : offset + limit]
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "entities": [
+                {
+                    "name": e["name"],
+                    "entityType": e["entityType"],
+                    "observationCount": len(e["observations"]),
+                }
+                for e in page
+            ],
+        }
+
+    def entity_detail(self, name: str) -> dict[str, Any] | None:
+        """Eine einzelne Entity komplett (inkl. Beobachtungen) plus ihre
+        direkten Relations mit Richtung -- fuer die Detailansicht. None, wenn
+        der Name nicht existiert."""
+        with self._lock:
+            graph = self._load()
+        entity = next((e for e in graph["entities"] if e["name"] == name), None)
+        if entity is None:
+            return None
+        connections = []
+        for r in graph["relations"]:
+            if r["from"] == name:
+                connections.append({"name": r["to"], "relationType": r["relationType"], "direction": "out"})
+            elif r["to"] == name:
+                connections.append({"name": r["from"], "relationType": r["relationType"], "direction": "in"})
+        entities_by_name = {e["name"]: e for e in graph["entities"]}
+        for c in connections:
+            verbunden = entities_by_name.get(c["name"])
+            c["entityType"] = verbunden["entityType"] if verbunden else None
+        return {"entity": entity, "connections": connections}
+
+    def neighborhood(self, name: str, depth: int = 1, max_nodes: int = 80) -> dict[str, Any]:
+        """Fuer die interaktive Graph-Ansicht: die Entity selbst plus alles,
+        was bis zur angegebenen Tiefe darueber erreichbar ist -- nie der ganze
+        Graph, damit Erkunden per Klick auch bei riesigem Bestand fluessig
+        bleibt. max_nodes deckelt zusaetzlich hart, falls ein Knoten extrem
+        vernetzt ist."""
+        with self._lock:
+            graph = self._load()
+        entities_by_name = {e["name"]: e for e in graph["entities"]}
+        if name not in entities_by_name:
+            return {"entities": [], "relations": []}
+
+        besucht = {name}
+        grenze = {name}
+        for _ in range(max(1, depth)):
+            if len(besucht) >= max_nodes:
+                break
+            naechste_grenze: set[str] = set()
+            for r in graph["relations"]:
+                if r["from"] in grenze and r["to"] not in besucht:
+                    naechste_grenze.add(r["to"])
+                if r["to"] in grenze and r["from"] not in besucht:
+                    naechste_grenze.add(r["from"])
+            if not naechste_grenze:
+                break
+            uebrig = max_nodes - len(besucht)
+            naechste_grenze = set(list(naechste_grenze)[:uebrig])
+            besucht |= naechste_grenze
+            grenze = naechste_grenze
+
+        filtered_entities = [entities_by_name[n] for n in besucht if n in entities_by_name]
+        filtered_relations = [
+            r for r in graph["relations"] if r["from"] in besucht and r["to"] in besucht
+        ]
+        return {"entities": filtered_entities, "relations": filtered_relations}
+
+    def top_connected(self, limit: int = 60) -> dict[str, Any]:
+        """Die am staerksten vernetzten Entities als Startansicht fuer den
+        Graphen bei grossem Bestand -- sinnvoller erster Blick als ein
+        zufaelliger oder alphabetischer Ausschnitt. Gibt es noch keine oder
+        kaum Relations, werden stattdessen einfach die ersten paar Entities
+        genommen, damit die Ansicht trotzdem nicht leer ist."""
+        with self._lock:
+            graph = self._load()
+        grad: dict[str, int] = {}
+        for r in graph["relations"]:
+            grad[r["from"]] = grad.get(r["from"], 0) + 1
+            grad[r["to"]] = grad.get(r["to"], 0) + 1
+
+        entities_by_name = {e["name"]: e for e in graph["entities"]}
+        namen = {n for n, _ in sorted(grad.items(), key=lambda kv: -kv[1])[:limit]}
+        if len(namen) < min(limit, len(graph["entities"])):
+            for e in graph["entities"]:
+                if len(namen) >= limit:
+                    break
+                namen.add(e["name"])
+
+        filtered_entities = [entities_by_name[n] for n in namen if n in entities_by_name]
+        filtered_relations = [
+            r for r in graph["relations"] if r["from"] in namen and r["to"] in namen
+        ]
+        return {"entities": filtered_entities, "relations": filtered_relations}
