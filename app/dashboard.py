@@ -35,7 +35,10 @@ def _graph(request: Request) -> KnowledgeGraphManager:
 
 
 async def dashboard_page(request: Request) -> HTMLResponse:
-    return HTMLResponse(_dashboard_html())
+    # no-store: dashboard.html aendert sich waehrend aktiver Entwicklung
+    # noch haeufig -- ohne das koennte ein Browser eine aeltere Version
+    # heuristisch cachen und Fixes wuerden scheinbar "nicht ankommen".
+    return HTMLResponse(_dashboard_html(), headers={"Cache-Control": "no-store"})
 
 
 async def api_stats(request: Request) -> JSONResponse:

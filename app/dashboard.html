@@ -795,14 +795,15 @@ GraphView.prototype._tick = function(){
 };
 
 GraphView.prototype._simulate = function(){
-  const nodes = Array.from(this.nodes.values());
+  // Nur verbundene Knoten (degree>0) nehmen ueberhaupt an der Physik teil --
+  // unverbundene werden separat und FEST auf einem Aussenring platziert
+  // (siehe _layoutIsolatedRing), nie hier mitsimuliert. Das war vorher der
+  // Hauptgrund fuer den geballten, unuebersichtlichen Eindruck: viele
+  // unverbundene Knoten trieben mitten zwischen den verbundenen umher.
+  const nodes = Array.from(this.nodes.values()).filter(function(n){ return n.degree > 0; });
   const n = nodes.length;
   if (n === 0) return 0;
-  // REPEL deutlich hoeher und CENTER deutlich niedriger als urspruenglich --
-  // sonst zieht die Zentrierungskraft nicht verbundene Knoten staerker
-  // zusammen als die Abstossung sie auseinanderdrueckt, und bei vielen
-  // Knoten ballt sich alles in der Mitte zu einem unleserlichen Klumpen.
-  const REPEL = 9000, SPRING = 0.02, IDEAL = 130, DAMP = 0.82, CENTER = 0.0006;
+  const REPEL = 15000, SPRING = 0.018, IDEAL = 140, DAMP = 0.82, CENTER = 0.0004;
 
   for (let i = 0; i < n; i++){
     let fx = 0, fy = 0;
@@ -877,6 +878,35 @@ GraphView.prototype._recomputeSizes = function(){
   });
 };
 
+// Unverbundene Knoten (degree===0) bekommen einen FESTEN Platz auf einem
+// Ring ausserhalb des verbundenen Clusters -- gleichmaessig nach Winkel
+// verteilt, Radius so gewaehlt, dass er garantiert ausserhalb des gerade
+// (nach der Presimulation) tatsaechlich belegten Bereichs liegt. Diese
+// Knoten nehmen NIE an der Physik teil (siehe _simulate-Filter), stehen
+// also nach dem Platzieren endgueltig fest -- kein Nachzittern, keine
+// Ueberschneidung mit dem verbundenen Cluster, klar als "gehoert nicht
+// direkt dazu" erkennbar.
+GraphView.prototype._layoutIsolatedRing = function(){
+  const connected = [];
+  const isolated = [];
+  this.nodes.forEach(function(n){ (n.degree > 0 ? connected : isolated).push(n); });
+
+  let maxConnectedRadius = 0;
+  connected.forEach(function(n){
+    const d = Math.sqrt(n.x*n.x + n.y*n.y) + n.r;
+    if (d > maxConnectedRadius) maxConnectedRadius = d;
+  });
+
+  const ringRadius = Math.max(200, maxConnectedRadius + 150);
+  const count = isolated.length;
+  isolated.forEach(function(n, i){
+    const angle = (i / Math.max(1, count)) * Math.PI * 2;
+    n.x = Math.cos(angle) * ringRadius;
+    n.y = Math.sin(angle) * ringRadius;
+    n.vx = 0; n.vy = 0; n.fx = 0; n.fy = 0;
+  });
+};
+
 GraphView.prototype.setData = function(data, mergeMode){
   if (!mergeMode){ this.nodes.clear(); this.edges = []; }
   const self = this;
@@ -890,6 +920,7 @@ GraphView.prototype.setData = function(data, mergeMode){
   this.edges.forEach(function(e){ e._from = self.nodes.get(e.from); e._to = self.nodes.get(e.to); });
   this._recomputeSizes();
   this._presimulate(220);
+  this._layoutIsolatedRing();
   this.hasLoaded = true;
   this.draw();
 };
