@@ -23,6 +23,14 @@ darauf hin, nur dauerhaft nuetzliche Fakten zu speichern und Beobachtungen
 nur an die tatsaechlich betroffene Entity zu haengen -- ein mit
 Belanglosigkeiten vollgeschriebener Graph macht spaeter auch die
 gedeckelten Suchergebnisse weniger nuetzlich.
+
+Aus demselben Grund verweisen die instructions auf die Entity
+"Ida-Memory Konventionen" im Graphen: dort liegt die verbindliche Struktur-
+und Stil-Konvention (erlaubte entityTypes/relationTypes, Namensregeln, die
+elf festen Lebensbereiche zum Einsortieren). Bewusst NUR als Verweis und
+nicht als Text hier im Code -- so bleibt die Konvention zur Laufzeit ueber
+den Graphen aenderbar, ohne Rebuild und ohne Neustart, und jede KI liest
+immer den aktuellen Stand.
 """
 
 from __future__ import annotations
@@ -52,6 +60,18 @@ mcp = FastMCP(
         "einen Namen, einen entityType und eine Liste von observations (kurze "
         "Fakten als Text). Relations verbinden zwei Entities gerichtet "
         "(from -> to) mit einem relationType. "
+        "PFLICHT VOR DEM ERSTEN SCHREIBEN: In diesem Graphen gilt eine feste "
+        "Struktur- und Stil-Konvention. Vor dem ersten create_entities/"
+        "create_relations/add_observations in einer Sitzung einmal "
+        "open_nodes([\"Ida-Memory Konventionen\"]) aufrufen und die dort "
+        "hinterlegten Regeln befolgen -- sie legen fest, welche entityTypes "
+        "und relationTypes erlaubt sind, wie Namen und Beobachtungen "
+        "formuliert werden und an welchen der elf festen Lebensbereiche eine "
+        "neue Entity per gehoert_zu_bereich gehaengt wird. Die Regeln stehen "
+        "bewusst im Graphen statt hier, damit sie jederzeit aenderbar sind -- "
+        "es gilt immer der dort hinterlegte Stand, nicht das, was eine KI aus "
+        "anderen Wissensgraphen gewohnt ist. Eintraege, die davon abweichen, "
+        "machen den Graphen langfristig unbrauchbar. "
         "WICHTIG fuer Token-Effizienz beim Lesen: read_graph gibt den "
         "KOMPLETTEN Graphen zurueck und wird mit wachsendem Bestand teuer -- "
         "fuer normale Fragen immer zuerst search_nodes (Volltextsuche) oder "
@@ -100,6 +120,12 @@ def create_entities(entities: list[dict]) -> list[dict]:
     wiederkehrende Themen) -- nicht fuer beilaeufige, einmalige
     Erwaehnungen. Jede zusaetzliche Entity kostet spaeter Kontext bei
     read_graph/search_nodes.
+
+    VORHER: die Entity "Ida-Memory Konventionen" gelesen haben (siehe
+    Server-instructions). Sie gibt die erlaubten entityTypes, die Namensregeln
+    und den Lebensbereich vor, an den die neue Entity gehoert. Ausserdem
+    zuerst per search_nodes pruefen, ob es die Sache schon gibt -- doppelte
+    Entities zum selben Realweltding sind der haeufigste Fehler hier.
     """
     return graph.create_entities(entities)
 
@@ -114,6 +140,12 @@ def create_relations(relations: list[dict]) -> list[dict]:
 
     Nur fuer tatsaechliche, dauerhafte Zusammenhaenge anlegen -- nicht fuer
     beilaeufige, einmalige Bezuege.
+
+    VORHER: die Entity "Ida-Memory Konventionen" gelesen haben (siehe
+    Server-instructions). Sie gibt das erlaubte relationType-Vokabular und die
+    Richtungsregel vor (immer vom Spezielleren zum Allgemeineren) und
+    verlangt, dass jede neue Entity per gehoert_zu_bereich an einen der elf
+    festen Lebensbereiche gehaengt wird.
     """
     return graph.create_relations(relations)
 
@@ -129,6 +161,12 @@ def add_observations(observations: list[dict]) -> list[dict]:
     Nur Beobachtungen hinzufuegen, die wirklich zu dieser einen Entity
     gehoeren und dauerhaft nuetzlich sind -- nicht wahllos Nebensaechliches
     anhaengen oder denselben Fakt vorsorglich an mehrere Entities schreiben.
+
+    VORHER: die Entity "Ida-Memory Konventionen" gelesen haben (siehe
+    Server-instructions) -- sie regelt unter anderem, dass eine observation
+    genau einen Fakt enthaelt, dass veraenderliche Angaben mit
+    "Stand JJJJ-MM-TT: " beginnen und dass ueberholte Angaben geloescht statt
+    ergaenzt werden.
     """
     try:
         return graph.add_observations(observations)
