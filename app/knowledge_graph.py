@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -58,13 +59,18 @@ class KnowledgeGraphManager:
                 continue
             item = json.loads(line)
             if item.get("type") == "entity":
-                entities.append(
-                    {
-                        "name": item["name"],
-                        "entityType": item["entityType"],
-                        "observations": item["observations"],
-                    }
-                )
+                entity = {
+                    "name": item["name"],
+                    "entityType": item["entityType"],
+                    "observations": item["observations"],
+                }
+                # "project" ist optional und nur bei Entities vorhanden, die
+                # per projekt_info_setzen() strukturierte Projekt-Infos
+                # (status/beschreibung/geplant) bekommen haben -- einfach
+                # durchreichen, falls in der Zeile vorhanden.
+                if "project" in item:
+                    entity["project"] = item["project"]
+                entities.append(entity)
             elif item.get("type") == "relation":
                 relations.append(
                     {
@@ -151,6 +157,58 @@ class KnowledgeGraphManager:
                 results.append({"entityName": obs["entityName"], "addedObservations": new_contents})
             self._save(graph)
             return results
+
+    def projekt_info_setzen(
+        self,
+        name: str,
+        status: str | None = None,
+        beschreibung: str | None = None,
+        geplant: str | None = None,
+        entity_type: str = "Projekt",
+    ) -> dict[str, Any]:
+        """Legt strukturierte Projekt-Infos (status/beschreibung/geplant) an
+        einer Entity an oder aktualisiert sie -- ergaenzt die normalen freien
+        observations um feste, immer gleich benannte Felder, die sich Suche,
+        Graph-Ansicht und Dashboard konsistent anzeigen lassen.
+
+        Legt die Entity automatisch neu an, falls sie noch nicht existiert
+        (mit entity_type, Standard "Projekt"). Nur die tatsaechlich
+        angegebenen (nicht-None) Felder werden geaendert -- so kann z.B. nur
+        der Status aktualisiert werden, ohne beschreibung/geplant erneut
+        mitzugeben; None bedeutet "unveraendert lassen", nicht "leeren".
+        aktualisiert_am wird bei jedem Aufruf automatisch neu gesetzt."""
+        with self._lock:
+            graph = self._load()
+            entity = next((e for e in graph["entities"] if e["name"] == name), None)
+            if entity is None:
+                entity = {"name": name, "entityType": entity_type, "observations": []}
+                graph["entities"].append(entity)
+
+            projekt = dict(entity.get("project") or {})
+            if status is not None:
+                projekt["status"] = status
+            if beschreibung is not None:
+                projekt["beschreibung"] = beschreibung
+            if geplant is not None:
+                projekt["geplant"] = geplant
+            projekt["aktualisiert_am"] = datetime.now(timezone.utc).isoformat()
+            entity["project"] = projekt
+
+            self._save(graph)
+            return {"name": entity["name"], "entityType": entity["entityType"], "project": projekt}
+
+    def projekte_liste(self) -> list[dict[str, Any]]:
+        """Alle Entities mit hinterlegten Projekt-Infos, alphabetisch --
+        schneller Ueberblick ueber alle Projekte samt Status, ohne jedes
+        einzeln nachschlagen zu muessen."""
+        with self._lock:
+            graph = self._load()
+        ergebnis = [
+            {"name": e["name"], "entityType": e["entityType"], **e["project"]}
+            for e in graph["entities"]
+            if e.get("project")
+        ]
+        return sorted(ergebnis, key=lambda p: p["name"].lower())
 
     def delete_entities(self, entity_names: list[str]) -> None:
         """Entfernt Entities und alle Relations, die sie referenzieren.
@@ -337,6 +395,10 @@ class KnowledgeGraphManager:
                     "name": e["name"],
                     "entityType": e["entityType"],
                     "observationCount": len(e["observations"]),
+                    # Nur der Status (nicht die volle Projekt-Info) -- billig
+                    # genug, um in der paginierten Liste als Badge
+                    # mitzuzeigen, ohne die Antwort aufzublaehen.
+                    "projectStatus": (e.get("project") or {}).get("status"),
                 }
                 for e in page
             ],

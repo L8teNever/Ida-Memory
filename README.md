@@ -185,6 +185,40 @@ Namen und Verhalten entsprechen 1:1 dem offiziellen Referenzserver:
 | `read_graph()` | Gibt den **kompletten** Graphen zurück -- teuer bei großem Bestand, siehe oben. |
 | `search_nodes(query)` | Volltextsuche über Namen/Typ/Beobachtungen, Trefferzahl begrenzt (`SEARCH_RESULT_LIMIT`). Normalfall für Abfragen. |
 | `open_nodes(names)` | Gibt gezielt bekannte Entities zurück (z.B. aus einem vorherigen `search_nodes`-Ergebnis). |
+| `projekt_info_setzen(name, status, beschreibung, geplant, entityType)` | Legt strukturierte Projekt-Infos an oder aktualisiert sie. Siehe unten. |
+| `projekte_liste()` | Alle Entities mit hinterlegten Projekt-Infos, alphabetisch, Status auf einen Blick. |
+
+## Projekt-Tracking: Übergabe-Notiz zwischen KI-Sitzungen
+
+Über die normalen `observations` hinaus (freier Text, unstrukturiert) gibt
+es für Entities vom Typ "Projekt" ein optionales, strukturiertes Feld
+`project: {status, beschreibung, geplant, aktualisiert_am}`, gesetzt über
+`projekt_info_setzen`. Zweck: **eine andere KI -- oder dieselbe KI in einer
+neuen, kontextlosen Sitzung -- soll allein durch dieses Feld verstehen, wo
+die Arbeit an einem Projekt gerade steht, ohne den Nutzer erneut fragen zu
+müssen, was schon umgesetzt wurde.** Das ist bewusst kein Dashboard-Feature
+-- der Weg dorthin ist der MCP-Connector, genau wie bei allen anderen Tools:
+
+- **`status`**: kurzer aktueller Stand, freier Text (z.B. "Geplant",
+  "In Entwicklung", "Aktiv/Fertig", "Pausiert", "Archiviert").
+- **`beschreibung`**: was im Projekt **bereits umgesetzt ist und
+  funktioniert** -- konkret genug, dass eine neue Sitzung direkt weiß,
+  worauf sie aufbaut, nicht nur eine Ein-Satz-Idee.
+- **`geplant`**: der **nächste konkrete Schritt** bzw. die Roadmap.
+- **`aktualisiert_am`**: wird automatisch bei jedem Aufruf gesetzt (UTC).
+
+`projekt_info_setzen` ändert nur die tatsächlich übergebenen Felder (fehlende
+= unverändert lassen), legt die Entity bei Bedarf neu an (Standard-Typ
+"Projekt") und sollte **nach jeder inhaltlich relevanten Änderung** am
+Projekt erneut aufgerufen werden, nicht nur einmalig beim Projektstart --
+sonst veraltet die Übergabe-Notiz und der eigentliche Zweck geht verloren.
+
+Das `project`-Feld ist Teil der normalen Entity und taucht deshalb überall
+automatisch mit auf, wo Entities zurückgegeben werden -- `search_nodes`,
+`open_nodes`, `read_graph` -- eine KI muss `projekte_liste` also gar nicht
+kennen, um beim Nachschlagen eines bekannten Projektnamens den Stand zu
+sehen; `projekte_liste()` ist nur die schnelle Übersicht über alle Projekte
+auf einmal, ohne jedes einzeln nachschlagen zu müssen.
 
 ## Web-Dashboard
 

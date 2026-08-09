@@ -3,11 +3,13 @@
 ein paar schlanke JSON-Endpunkte, die dieselbe KnowledgeGraphManager-Instanz
 wie die MCP-Tools benutzen (single source of truth, siehe app/server.py).
 
-Laeuft auf derselben App/demselben Port wie der MCP-Endpunkt -- dieselbe
-BearerAuthMiddleware (siehe app/auth.py) schuetzt automatisch auch diese
-Routen mit, kein eigener Auth-Mechanismus noetig. Die Seite selbst liest das
-?token= aus ihrer eigenen URL (im Browser per JS) und haengt es an jeden
-eigenen API-Aufruf wieder an -- exakt dasselbe Prinzip wie beim MCP-Endpunkt.
+Laeuft als eigener Prozess/Container auf einem eigenen Port (siehe
+app/dashboard_server.py) -- bewusst OHNE eigenen Token-Auth-Mechanismus.
+Der Schutz kommt stattdessen von einer Cloudflare Access Application vor
+diesem Hostname (Login per E-Mail-Code am Edge, bevor eine Anfrage hier
+ueberhaupt ankommt) -- siehe README.md. Diese Route-Datei/dashboard.html
+darf deshalb niemals ueber einen anderen Weg (z.B. direkte IP, anderer
+Tunnel-Eintrag ohne Access davor) erreichbar gemacht werden.
 """
 
 from __future__ import annotations

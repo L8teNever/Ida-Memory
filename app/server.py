@@ -65,7 +65,23 @@ mcp = FastMCP(
         "wirklich gehoert, nicht vorsorglich an mehrere. Ein voll geschriebener "
         "Graph mit Trivialkram macht spaeter auch die (bewusst begrenzten) "
         "Suchergebnisse weniger brauchbar -- weniger, aber relevante Eintraege "
-        "sind besser als moeglichst viele."
+        "sind besser als moeglichst viele. "
+        "Fuer Projekte (Software, Vorhaben, laufende Arbeiten) gibt es "
+        "zusaetzlich projekt_info_setzen(name, status, beschreibung, geplant) "
+        "-- feste, strukturierte Felder statt freier observations, damit "
+        "Status/aktuelle Funktionen/Roadmap konsistent benannt sind und sich "
+        "im Dashboard sauber anzeigen lassen. Legt die Entity bei Bedarf neu "
+        "an, aktualisiert nur die tatsaechlich angegebenen Felder. "
+        "projekte_liste() zeigt alle Projekte mit Status auf einen Blick. "
+        "ZWECK dieser beiden Felder: eine andere KI (oder eine neue Sitzung "
+        "derselben KI), die spaeter an genau diesem Projekt weiterarbeitet, "
+        "soll allein durch beschreibung+geplant+status genau dort anknuepfen "
+        "koennen, wo die vorherige aufgehoert hat -- ohne den Nutzer erneut "
+        "fragen zu muessen, was schon gemacht wurde. beschreibung ist deshalb "
+        "der aktuelle Stand: was bereits umgesetzt ist und funktioniert (nicht "
+        "nur eine grobe Idee); geplant ist konkret der naechste Schritt/die "
+        "Roadmap. Nach jeder inhaltlich relevanten Aenderung an einem Projekt "
+        "sollte projekt_info_setzen aktualisiert werden, nicht nur beim Start."
     ),
     host=settings.mcp_host,
     port=settings.mcp_port,
@@ -118,6 +134,56 @@ def add_observations(observations: list[dict]) -> list[dict]:
         return graph.add_observations(observations)
     except KnowledgeGraphError as exc:
         raise ValueError(str(exc)) from exc
+
+
+@mcp.tool()
+def projekt_info_setzen(
+    name: str,
+    status: str | None = None,
+    beschreibung: str | None = None,
+    geplant: str | None = None,
+    entityType: str = "Projekt",
+) -> dict:
+    """Legt strukturierte Projekt-Infos an einer Entity an oder aktualisiert sie:
+    Status, was das Projekt aktuell macht/kann, und was als naechstes geplant ist.
+
+    Gedacht als Uebergabe-Notiz zwischen KI-Sitzungen: eine andere KI (oder
+    dieselbe KI in einer neuen, kontextlosen Sitzung) soll allein anhand
+    dieser Felder verstehen, wo die Arbeit an diesem Projekt gerade steht --
+    ohne den Nutzer erneut fragen zu muessen, was schon umgesetzt wurde.
+
+    name: Entity-Name -- wird automatisch neu angelegt (als entityType, Standard
+        "Projekt"), falls sie noch nicht existiert.
+    status: aktueller Status, freier Text (z.B. "Geplant", "In Entwicklung",
+        "Aktiv/Fertig", "Pausiert", "Archiviert") -- weglassen/None, um den
+        bisherigen Status NICHT zu aendern.
+    beschreibung: was im Projekt bereits umgesetzt ist und aktuell funktioniert
+        -- konkret genug, dass eine neue KI-Sitzung direkt weiss, worauf sie
+        aufbaut, nicht nur eine grobe Ein-Satz-Idee. Weglassen/None, um nicht
+        zu aendern.
+    geplant: was als naechstes konkret geplant/noch offen ist (Roadmap,
+        naechste Schritte) -- weglassen/None, um nicht zu aendern.
+    entityType: nur relevant, wenn die Entity dabei neu angelegt wird.
+
+    Nur die tatsaechlich angegebenen Felder werden geaendert, alle anderen
+    bleiben wie zuvor -- z.B. nur den Status aktualisieren, ohne
+    beschreibung/geplant erneut mitzugeben. Ergaenzt die normalen freien
+    observations (weiterhin per add_observations nutzbar), ersetzt sie nicht.
+    Sollte nach jeder inhaltlich relevanten Aenderung am Projekt erneut
+    aufgerufen werden, nicht nur einmalig beim Projektstart.
+    """
+    return graph.projekt_info_setzen(
+        name, status=status, beschreibung=beschreibung, geplant=geplant, entity_type=entityType,
+    )
+
+
+@mcp.tool()
+def projekte_liste() -> list[dict]:
+    """Zeigt alle Entities mit hinterlegten Projekt-Infos (Status, Beschreibung,
+    Geplant), alphabetisch -- schneller Ueberblick ueber alle Projekte und
+    ihren Stand, ohne jedes einzeln per search_nodes/open_nodes nachzuschlagen.
+    """
+    return graph.projekte_liste()
 
 
 @mcp.tool()
